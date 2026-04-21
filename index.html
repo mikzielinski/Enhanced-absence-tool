@@ -481,11 +481,8 @@
       </button>
       <button class="entity-pill" data-entity="dk_ab">
         Denmark — Qiagen AB
-        <span class="entity-badge new" style="background:var(--primary);color:#fff">NEW</span>
+        <span class="entity-badge" style="background:rgba(26,58,143,.15);color:var(--primary)">DK</span>
       </button>
-      <button class="entity-pill disabled" data-entity="uk">UK</button>
-      <button class="entity-pill disabled" data-entity="de">Germany</button>
-      <button class="entity-pill disabled" data-entity="ch">Switzerland</button>
     </div>
   </div>
 
@@ -498,6 +495,10 @@
     <button class="process-tab" data-tab="p2">
       <span class="tab-num">Process 2</span>
       Update Master File
+    </button>
+    <button class="process-tab" id="tab-p3" data-tab="p3">
+      <span class="tab-num">Process 3</span>
+      Compare Balances
     </button>
     <button class="process-tab" data-tab="p4">
       <span class="tab-num">Process 4</span>
@@ -579,6 +580,50 @@
       <div class="btn-row">
         <button id="btn-p2" class="btn btn-primary" type="button" disabled>
           ▶ Run — Update Master
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ PROCESS 3 ═══════════════ -->
+  <div id="panel-p3" class="panel hidden">
+    <div class="panel-header">
+      <div class="panel-icon">⚖️</div>
+      <div>
+        <div class="panel-title">Process 3 — Compare Balances</div>
+        <div class="panel-desc">Compares Total holidays (source file) against Total holiday balance (master file). Mismatches are highlighted in red.</div>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div id="p3-error" class="notice notice-error hidden"></div>
+      <div class="field-group">
+        <div class="field-group-label">File A — Holiday Balance source (contains "Total holidays")</div>
+        <div class="field-group-body">
+          <div class="field">
+            <label>File A</label>
+            <div class="file-row">
+              <input id="p3-file-a" class="file-input" type="file" accept=".xlsx,.xls" />
+              <select id="p3-sheet-a"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="field-group">
+        <div class="field-group-label">File B — Holiday Balance master (contains "Total holiday balance")</div>
+        <div class="field-group-body">
+          <div class="field">
+            <label>File B</label>
+            <div class="file-row">
+              <input id="p3-file-b" class="file-input" type="file" accept=".xlsx,.xls" />
+              <select id="p3-sheet-b"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="hint">Compares <strong>Total holidays</strong> (File A) with <strong>Total holiday balance</strong> (File B). Mismatches are highlighted red in the output.</div>
+      <div class="btn-row">
+        <button id="btn-p3" class="btn btn-primary" type="button" disabled>
+          ▶ Run — Compare Balances
         </button>
       </div>
     </div>

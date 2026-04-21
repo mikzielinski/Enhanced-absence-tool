@@ -7,6 +7,7 @@
 const ENTITIES = {
   dk_aarhus: {
     label: "Denmark — Qiagen Aarhus",
+    processes: ["p1", "p2", "p3", "p4"],
     months: ["Sep-25","Oct-25","Nov-25","Dec-25","Jan-26","Feb-26","Mar-26","Apr-26","May-26","Jun-26","Jul-26","Aug-26"],
     absenceTypeMap: {
       // E-days Absence Type value (lowercase, trimmed) → { code, type }
@@ -34,6 +35,7 @@ const ENTITIES = {
   },
   dk_ab: {
     label: "Denmark — Qiagen AB",
+    processes: ["p1", "p2", "p4"],
     months: ["Sep-25","Oct-25","Nov-25","Dec-25","Jan-26","Feb-26","Mar-26","Apr-26","May-26","Jun-26","Jul-26","Aug-26"],
     absenceTypeMap: {
       "holiday":                                          { code: 748,  type: "Vacation" },
@@ -82,6 +84,7 @@ const ui = {
 
   panelP1: document.getElementById("panel-p1"),
   panelP2: document.getElementById("panel-p2"),
+  panelP3: document.getElementById("panel-p3"),
   panelP4: document.getElementById("panel-p4"),
 
   p1SourceFile: document.getElementById("p1-source-file"),
@@ -96,6 +99,14 @@ const ui = {
   p2MasterSheet: document.getElementById("p2-master-sheet"),
   p2Error: document.getElementById("p2-error"),
   btnP2: document.getElementById("btn-p2"),
+
+  p3FileA: document.getElementById("p3-file-a"),
+  p3SheetA: document.getElementById("p3-sheet-a"),
+  p3FileB: document.getElementById("p3-file-b"),
+  p3SheetB: document.getElementById("p3-sheet-b"),
+  p3Error: document.getElementById("p3-error"),
+  btnP3: document.getElementById("btn-p3"),
+  tabP3: document.getElementById("tab-p3"),
 
   p4MasterFile: document.getElementById("p4-master-file"),
   p4MasterSheet: document.getElementById("p4-master-sheet"),
@@ -130,6 +141,7 @@ function init() {
       ui.entityLabel.textContent = ENTITIES[state.entity].label;
       populateMonthSelect();
       resetAllForms();
+      updateTabVisibility();
       log(`Entity: ${ENTITIES[state.entity].label}`);
     });
   });
@@ -137,12 +149,8 @@ function init() {
   // Process tabs
   ui.processTabs.forEach((tab) => {
     tab.addEventListener("click", () => {
-      ui.processTabs.forEach((t) => t.classList.remove("active"));
-      tab.classList.add("active");
-      const key = tab.dataset.tab;
-      ui.panelP1.classList.toggle("hidden", key !== "p1");
-      ui.panelP2.classList.toggle("hidden", key !== "p2");
-      ui.panelP4.classList.toggle("hidden", key !== "p4");
+      if (tab.classList.contains("tab-hidden")) return;
+      switchTab(tab.dataset.tab);
     });
   });
 
@@ -150,17 +158,20 @@ function init() {
   ui.p1SourceFile.addEventListener("change", (e) => loadWorkbook(e, "p1Source", ui.p1SourceSheet, ui.p1Error));
   ui.p2SourceFile.addEventListener("change", (e) => loadWorkbook(e, "p2Source", ui.p2SourceSheet, ui.p2Error));
   ui.p2MasterFile.addEventListener("change", (e) => loadWorkbook(e, "p2Master", ui.p2MasterSheet, ui.p2Error));
+  ui.p3FileA.addEventListener("change",      (e) => loadWorkbook(e, "p3A",      ui.p3SheetA,      ui.p3Error));
+  ui.p3FileB.addEventListener("change",      (e) => loadWorkbook(e, "p3B",      ui.p3SheetB,      ui.p3Error));
   ui.p4MasterFile.addEventListener("change", (e) => loadWorkbook(e, "p4Master", ui.p4MasterSheet, ui.p4Error));
   ui.p4PayslipFiles.addEventListener("change", refreshButtons);
 
   // Sheet selects → refresh buttons
-  [ui.p1SourceSheet, ui.p2SourceSheet, ui.p2MasterSheet, ui.p4MasterSheet].forEach((s) =>
+  [ui.p1SourceSheet, ui.p2SourceSheet, ui.p2MasterSheet, ui.p3SheetA, ui.p3SheetB, ui.p4MasterSheet].forEach((s) =>
     s.addEventListener("change", refreshButtons)
   );
 
   // Run buttons
   ui.btnP1.addEventListener("click", runProcess1);
   ui.btnP2.addEventListener("click", runProcess2);
+  ui.btnP3.addEventListener("click", runProcess3);
   ui.btnP4.addEventListener("click", runProcess4);
 
   // Initial state
@@ -169,8 +180,36 @@ function init() {
   fillSelect(ui.p1SourceSheet, []);
   fillSelect(ui.p2SourceSheet, []);
   fillSelect(ui.p2MasterSheet, []);
+  fillSelect(ui.p3SheetA, []);
+  fillSelect(ui.p3SheetB, []);
   fillSelect(ui.p4MasterSheet, []);
+  updateTabVisibility();
   refreshButtons();
+}
+
+function updateTabVisibility() {
+  const allowed = ENTITIES[state.entity].processes;
+  ui.processTabs.forEach((tab) => {
+    const key = tab.dataset.tab;
+    const visible = allowed.includes(key);
+    tab.classList.toggle("tab-hidden", !visible);
+    tab.style.display = visible ? "" : "none";
+  });
+  // If currently active tab is not allowed, switch to p1
+  const activeTab = document.querySelector(".process-tab.active");
+  if (!activeTab || !allowed.includes(activeTab.dataset.tab)) {
+    switchTab("p1");
+  }
+}
+
+function switchTab(key) {
+  ui.processTabs.forEach((t) => t.classList.remove("active"));
+  const tab = document.querySelector(`.process-tab[data-tab="${key}"]`);
+  if (tab) tab.classList.add("active");
+  ui.panelP1.classList.toggle("hidden", key !== "p1");
+  ui.panelP2.classList.toggle("hidden", key !== "p2");
+  ui.panelP3.classList.toggle("hidden", key !== "p3");
+  ui.panelP4.classList.toggle("hidden", key !== "p4");
 }
 
 function populateMonthSelect() {
@@ -191,11 +230,15 @@ function resetAllForms() {
   state.p1SourceWb = null;
   state.p2SourceWb = null;
   state.p2MasterWb = null;
+  state.p3AWb = null;
+  state.p3BWb = null;
   state.p4MasterWb = null;
-  [ui.p1SourceFile, ui.p2SourceFile, ui.p2MasterFile, ui.p4MasterFile, ui.p4PayslipFiles].forEach((f) => { f.value = ""; });
+  [ui.p1SourceFile, ui.p2SourceFile, ui.p2MasterFile, ui.p3FileA, ui.p3FileB, ui.p4MasterFile, ui.p4PayslipFiles].forEach((f) => { f.value = ""; });
   fillSelect(ui.p1SourceSheet, []);
   fillSelect(ui.p2SourceSheet, []);
   fillSelect(ui.p2MasterSheet, []);
+  fillSelect(ui.p3SheetA, []);
+  fillSelect(ui.p3SheetB, []);
   fillSelect(ui.p4MasterSheet, []);
   refreshButtons();
 }
@@ -203,6 +246,7 @@ function resetAllForms() {
 function refreshButtons() {
   ui.btnP1.disabled = !(state.p1SourceWb && ui.p1SourceSheet.value);
   ui.btnP2.disabled = !(state.p2SourceWb && ui.p2SourceSheet.value && state.p2MasterWb && ui.p2MasterSheet.value);
+  ui.btnP3.disabled = !(state.p3AWb && ui.p3SheetA.value && state.p3BWb && ui.p3SheetB.value);
   ui.btnP4.disabled = !(state.p4MasterWb && ui.p4MasterSheet.value && (ui.p4PayslipFiles.files || []).length > 0);
 }
 
@@ -424,6 +468,178 @@ function buildBalanceSummary(rows, entity) {
     rec[type] = round2((rec[type] || 0) + days);
   });
   return Array.from(map.values());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROCESS 3 — COMPARE BALANCES
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function runProcess3() {
+  clearLog();
+  hideError(ui.p3Error);
+  setResultRunning();
+  try {
+    log("=== Process 3 — Compare Balances ===");
+    const entity = ENTITIES[state.entity];
+    const fileA = ui.p3FileA.files?.[0];
+    const fileB = ui.p3FileB.files?.[0];
+    if (!fileA) throw new Error("Please select File A.");
+    if (!fileB) throw new Error("Please select File B.");
+    const sheetA = ui.p3SheetA.value;
+    const sheetB = ui.p3SheetB.value;
+    if (!sheetA || !sheetB) throw new Error("Please select sheets for both files.");
+
+    // Read File A — look for "Total holidays" column
+    log(`Reading File A: ${fileA.name} / ${sheetA}`);
+    const bufA = await fileA.arrayBuffer();
+    const tableA = await buildTempTable(bufA, sheetA, {
+      idCandidates:    ["Holid", "SAP ID", "ID", "Employee Number"],
+      valueCandidates: ["Total holidays"],
+      nameCandidates:  ["Name", "Employee", "Employee Name", "First Name"],
+      valueKey: "totalHolidays",
+    });
+    log(`  File A: ${tableA.size} record(s).`);
+    tableA.forEach((v, sap) => log(`  ID=${sap} | Total holidays=${v.totalHolidays}`));
+
+    // Read File B — look for "Total holiday balance" column
+    log(`Reading File B: ${fileB.name} / ${sheetB}`);
+    const bufB = await fileB.arrayBuffer();
+    const tableB = await buildTempTable(bufB, sheetB, {
+      idCandidates:    ["SAP ID", "ID", "Holid", "Employee Number"],
+      valueCandidates: ["Total holiday balance"],
+      nameCandidates:  ["Employee", "Name", "Employee Name", "First Name"],
+      valueKey: "totalHolidayBalance",
+    });
+    log(`  File B: ${tableB.size} record(s).`);
+    tableB.forEach((v, sap) => log(`  ID=${sap} | Total holiday balance=${v.totalHolidayBalance}`));
+
+    // Compare
+    const compareRows = [];
+    tableA.forEach((recA, sap) => {
+      const recB = tableB.get(sap);
+      const src  = recA.totalHolidays;
+      const mst  = recB ? recB.totalHolidayBalance : null;
+      const name = recA.name || (recB ? recB.name : "") || sap;
+      compareRows.push({
+        "SAP ID":                         sap,
+        "Employee Name":                  name,
+        "Total holidays (source)":        src,
+        "Total holiday balance (master)": mst,
+        "Match": src !== null && mst !== null ? round2(src) === round2(mst) : false,
+      });
+    });
+
+    const outBytes = buildBalanceComparisonWorkbook(compareRows);
+    const outName  = `Balance comparison ${todayIso()}.xlsx`;
+    downloadStyledXlsx(outBytes, outName);
+
+    const mismatches = compareRows.filter((r) => r["Match"] !== true).length;
+    log(`Done. Records: ${compareRows.length}, Mismatches: ${mismatches}`);
+    setResultSuccess({
+      process: "Process 3 — Compare Balances",
+      entity: entity.label,
+      stats: [
+        { label: "Total Records", val: compareRows.length, cls: "" },
+        { label: "Matched",       val: compareRows.length - mismatches, cls: "ok" },
+        { label: "Mismatched",    val: mismatches, cls: mismatches > 0 ? "warn" : "ok" },
+      ],
+      file: outName,
+    });
+  } catch (err) {
+    showError(ui.p3Error, err.message);
+    setResultError(err.message);
+    log(`ERROR: ${err.message}`, "error");
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BUILD TEMP TABLE (for Process 3 — reads raw cell values from xlsx XML)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function buildTempTable(arrayBuffer, sheetName, opts) {
+  if (!window.fflate) throw new Error("fflate not available.");
+  const zipped = window.fflate.unzipSync(new Uint8Array(arrayBuffer));
+  const shared = parseSharedStrings(zipped);
+  const wbXml  = window.fflate.strFromU8(zipped["xl/workbook.xml"]);
+  const wbRels = window.fflate.strFromU8(zipped["xl/_rels/workbook.xml.rels"]);
+  const wsPath = resolveWorksheetPath(wbXml, wbRels, sheetName);
+  if (!zipped[wsPath]) throw new Error(`Sheet '${sheetName}' not found.`);
+  const wsXml = window.fflate.strFromU8(zipped[wsPath]);
+  const doc   = new DOMParser().parseFromString(wsXml, "application/xml");
+  const sd    = findChild(doc.documentElement, "sheetData");
+  if (!sd) throw new Error("Sheet has no sheetData.");
+  const xmlRows = getChildren(sd, "row");
+  if (!xmlRows.length) throw new Error(`Sheet '${sheetName}' is empty.`);
+
+  function rawVal(cell) {
+    if (!cell) return null;
+    const t   = cell.getAttribute("t") || "";
+    const vEl = findChild(cell, "v");
+    const v   = vEl ? vEl.textContent.trim() : "";
+    if (!v) return null;
+    if (t === "s") { const idx = parseInt(v, 10); return isNaN(idx) ? null : (shared[idx] || null); }
+    const n = Number(v);
+    return isFinite(n) ? n : v;
+  }
+
+  // Build full cell map: ref → value
+  const cellMap = new Map();
+  xmlRows.forEach((row) => getChildren(row, "c").forEach((cell) => {
+    cellMap.set(cell.getAttribute("r") || "", rawVal(cell));
+  }));
+
+  // Scan row 1 for headers
+  const headerMap = {}, headerRaw = {};
+  getChildren(xmlRows[0], "c").forEach((cell) => {
+    const ref = cell.getAttribute("r") || "";
+    const col = ref.replace(/[0-9]/g, "");
+    const v   = rawVal(cell);
+    if (typeof v === "string" && v.trim()) {
+      const norm = v.replace(/\s+/g, " ").trim();
+      headerMap[col] = norm.toLowerCase();
+      headerRaw[col] = norm;
+    }
+  });
+
+  log(`  Headers in '${sheetName}': ${Object.values(headerRaw).join(" | ")}`);
+
+  function findCol(candidates) {
+    for (const cand of candidates) {
+      const cl = cand.toLowerCase().replace(/\s+/g, " ").trim();
+      for (const [col, hdr] of Object.entries(headerMap)) { if (hdr === cl) return col; }
+    }
+    return null;
+  }
+
+  const idCol    = findCol(opts.idCandidates);
+  const valueCol = findCol(opts.valueCandidates);
+  const nameCol  = findCol(opts.nameCandidates || []);
+
+  if (!idCol)    throw new Error(`ID column not found in '${sheetName}'. Tried: ${opts.idCandidates.join(", ")}. Headers: ${Object.values(headerRaw).join(" | ")}`);
+  if (!valueCol) throw new Error(`Value column not found in '${sheetName}'. Tried: ${opts.valueCandidates.join(", ")}. Headers: ${Object.values(headerRaw).join(" | ")}`);
+
+  const result = new Map();
+  const rowNums = xmlRows.map((r) => parseInt(r.getAttribute("r") || "0", 10)).filter((n) => n > 0).sort((a, b) => a - b);
+  for (const rn of rowNums) {
+    const idRaw = cellMap.get(`${idCol}${rn}`);
+    const sap   = normalizeSap(idRaw);
+    if (!sap || !/^[0-9]+$/.test(sap)) continue;
+    const val  = cellMap.get(`${valueCol}${rn}`);
+    const num  = typeof val === "number" ? round2(val) : null;
+    const name = nameCol ? String(cellMap.get(`${nameCol}${rn}`) || "").trim() : "";
+    const rec  = { name };
+    rec[opts.valueKey] = num;
+    result.set(sap, rec);
+  }
+  return result;
+}
+
+function buildBalanceComparisonWorkbook(rows) {
+  const headers = ["SAP ID", "Employee Name", "Total holidays (source)", "Total holiday balance (master)", "Match"];
+  return buildStyledXlsx("Balance comparison", headers, rows, (row) => {
+    const m = row["Match"];
+    return m === false || m === "FALSE" || m === 0;
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
