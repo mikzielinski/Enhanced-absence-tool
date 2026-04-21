@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payroll Process Platform</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f5f6fa;
+      --surface: #ffffff;
+      --surface2: #f0f2f8;
+      --border: #d8dce8;
+      --border-strong: #b0b8cc;
+      --text: #1a1d2e;
+      --text-muted: #5c6480;
+      --text-light: #8c94b0;
+      --primary: #1a3a8f;
+      --primary-hover: #152e72;
+      --primary-light: #e8edf8;
+      --accent: #c41e3a;
+      --ok: #0a6e43;
+      --ok-bg: #e6f4ed;
+      --warn: #b54708;
+      --warn-bg: #fef3e2;
+      --danger: #c41e3a;
+      --danger-bg: #fce8ec;
+      --radius: 8px;
+      --radius-lg: 12px;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+      --shadow: 0 2px 8px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.06);
+      --shadow-lg: 0 8px 24px rgba(0,0,0,.1), 0 2px 6px rgba(0,0,0,.06);
+      --font-mono: 'IBM Plex Mono', monospace;
+      --font: 'IBM Plex Sans', sans-serif;
+    }
+
+    body {
+      font-family: var(--font);
+      font-size: 14px;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      min-height: 100vh;
+    }
+
+    /* ── Topbar ── */
+    .topbar {
+      background: var(--primary);
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      gap: 0;
+      height: 56px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 12px rgba(0,0,0,.18);
+    }
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex: 1;
+    }
+    .brand-wordmark {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      font-size: 1rem;
+      color: #fff;
+      letter-spacing: .02em;
+    }
+    .brand-sub {
+      font-size: .78rem;
+      color: rgba(255,255,255,.55);
+      font-weight: 300;
+      margin-left: 2px;
+    }
+    .topbar-divider {
+      width: 1px;
+      height: 28px;
+      background: rgba(255,255,255,.2);
+      margin: 0 20px;
+    }
+    .topbar-meta {
+      font-size: .8rem;
+      color: rgba(255,255,255,.7);
+      font-family: var(--font-mono);
+    }
+
+    /* ── Layout ── */
+    .layout {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 28px 20px 56px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    /* ── Entity Selector ── */
+    .entity-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px 24px;
+      box-shadow: var(--shadow-sm);
+    }
+    .entity-card h2 {
+      font-size: .72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--text-light);
+      margin-bottom: 14px;
+      font-family: var(--font-mono);
+    }
+    .entity-pills {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .entity-pill {
+      padding: 8px 18px;
+      border: 1.5px solid var(--border);
+      border-radius: 100px;
+      background: var(--surface);
+      color: var(--text-muted);
+      font-size: .85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all .15s;
+      font-family: var(--font);
+    }
+    .entity-pill:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+    .entity-pill.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(26,58,143,.25);
+    }
+    .entity-pill.disabled {
+      opacity: .4;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    .entity-badge {
+      display: inline-block;
+      font-size: .68rem;
+      font-family: var(--font-mono);
+      background: rgba(255,255,255,.25);
+      border-radius: 4px;
+      padding: 1px 5px;
+      margin-left: 4px;
+      vertical-align: middle;
+    }
+    .entity-badge.new {
+      background: #fff;
+      color: var(--primary);
+    }
+
+    /* ── Process selector ── */
+    .process-tabs {
+      display: flex;
+      gap: 0;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 4px;
+    }
+    .process-tab {
+      flex: 1;
+      padding: 10px 12px;
+      border: none;
+      background: transparent;
+      border-radius: calc(var(--radius-lg) - 4px);
+      font-family: var(--font);
+      font-size: .84rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all .15s;
+      text-align: center;
+      line-height: 1.3;
+    }
+    .process-tab:hover { color: var(--text); background: rgba(255,255,255,.6); }
+    .process-tab.active {
+      background: var(--surface);
+      color: var(--primary);
+      font-weight: 600;
+      box-shadow: var(--shadow-sm);
+    }
+    .process-tab .tab-num {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: .68rem;
+      font-weight: 600;
+      color: var(--text-light);
+      margin-bottom: 2px;
+    }
+    .process-tab.active .tab-num { color: var(--primary); opacity: .7; }
+
+    /* ── Panel ── */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .panel-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: var(--primary-light);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .9rem;
+      flex-shrink: 0;
+    }
+    .panel-title { font-size: .95rem; font-weight: 600; color: var(--text); }
+    .panel-desc { font-size: .8rem; color: var(--text-muted); margin-top: 2px; }
+    .panel-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+
+    /* ── Form fields ── */
+    .field-group {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .field-group-label {
+      padding: 8px 14px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      font-size: .75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      letter-spacing: .03em;
+    }
+    .field-group-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+
+    .field { display: flex; flex-direction: column; gap: 5px; }
+    .field > label { font-size: .78rem; font-weight: 600; color: var(--text-muted); }
+
+    .file-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .file-input {
+      flex: 1;
+      min-width: 0;
+      padding: 7px 10px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface2);
+      font-family: var(--font);
+      font-size: .84rem;
+      color: var(--text);
+      cursor: pointer;
+      transition: border-color .15s;
+    }
+    .file-input:hover { border-color: var(--primary); }
+    .file-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26,58,143,.08); }
+
+    select {
+      padding: 7px 10px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      font-family: var(--font);
+      font-size: .84rem;
+      color: var(--text);
+      cursor: pointer;
+      min-width: 160px;
+      transition: border-color .15s;
+    }
+    select:focus { outline: none; border-color: var(--primary); }
+
+    /* Month selector */
+    .month-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .month-row label {
+      font-size: .84rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .month-row select { min-width: 130px; }
+
+    /* ── Buttons ── */
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; padding-top: 4px; }
+    .btn {
+      padding: 10px 22px;
+      border: none;
+      border-radius: var(--radius);
+      font-family: var(--font);
+      font-size: .88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+      box-shadow: 0 1px 4px rgba(26,58,143,.2);
+    }
+    .btn-primary:hover { background: var(--primary-hover); box-shadow: 0 2px 8px rgba(26,58,143,.3); }
+    .btn-primary:disabled { background: #9ca8c4; cursor: not-allowed; box-shadow: none; }
+
+    /* ── Notices ── */
+    .notice {
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      font-size: .84rem;
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .notice-error { background: var(--danger-bg); border: 1px solid #f5b8c2; color: var(--danger); }
+    .notice-info  { background: var(--primary-light); border: 1px solid #c0cdea; color: var(--primary); }
+    .notice-ok    { background: var(--ok-bg); border: 1px solid #9fcfba; color: var(--ok); }
+
+    /* ── Result + Log ── */
+    .result-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
+    .result-header {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      font-size: .78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .result-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--border-strong);
+      flex-shrink: 0;
+    }
+    .result-dot.ok { background: var(--ok); }
+    .result-dot.error { background: var(--danger); }
+    .result-dot.running {
+      background: var(--primary);
+      animation: pulse 1s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+    .result-body { padding: 16px 20px; }
+    .result-empty { color: var(--text-light); font-style: italic; font-size: .85rem; }
+    .result-stats {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .stat-item { display: flex; flex-direction: column; gap: 2px; }
+    .stat-val { font-size: 1.4rem; font-weight: 700; font-family: var(--font-mono); color: var(--text); }
+    .stat-label { font-size: .73rem; color: var(--text-light); text-transform: uppercase; letter-spacing: .06em; }
+    .stat-val.ok { color: var(--ok); }
+    .stat-val.warn { color: var(--warn); }
+
+    .log-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+    .log-header {
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .log-title {
+      font-family: var(--font-mono);
+      font-size: .75rem;
+      font-weight: 600;
+      color: var(--text-light);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .log-clear {
+      font-size: .75rem;
+      color: var(--text-light);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: var(--font);
+      padding: 2px 8px;
+      border-radius: 4px;
+      transition: .12s;
+    }
+    .log-clear:hover { background: var(--surface2); color: var(--text-muted); }
+    .log-output {
+      min-height: 160px;
+      max-height: 300px;
+      overflow-y: auto;
+      background: #0d1117;
+      color: #8bb4f8;
+      padding: 14px 18px;
+      font-family: var(--font-mono);
+      font-size: .8rem;
+      line-height: 1.65;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .log-line-ok { color: #5dbd8a; }
+    .log-line-warn { color: #f0b040; }
+    .log-line-error { color: #f07070; }
+
+    /* ── Hint text ── */
+    .hint {
+      font-size: .79rem;
+      color: var(--text-light);
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      line-height: 1.4;
+    }
+    .hint::before { content: "→"; flex-shrink: 0; margin-top: 1px; }
+
+    .hidden { display: none !important; }
+    .divider { height: 1px; background: var(--border); margin: 4px 0; }
+
+    @media (max-width: 600px) {
+      .file-row { flex-direction: column; }
+      .btn-row { flex-direction: column; }
+      .process-tab .tab-num { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-brand">
+    <span class="brand-wordmark">Payroll Process Platform
+      <span class="brand-sub">// Holiday Balance Tool</span>
+    </span>
+  </div>
+  <div class="topbar-divider"></div>
+  <div class="topbar-meta" id="entityLabel">Select entity →</div>
+</header>
+
+<main class="layout">
+
+  <!-- Entity selector -->
+  <div class="entity-card">
+    <h2>Entity</h2>
+    <div class="entity-pills">
+      <button class="entity-pill active" data-entity="dk_aarhus">
+        Denmark — Qiagen Aarhus
+        <span class="entity-badge" style="background:rgba(26,58,143,.15);color:var(--primary)">DK</span>
+      </button>
+      <button class="entity-pill" data-entity="dk_ab">
+        Denmark — Qiagen AB
+        <span class="entity-badge new" style="background:var(--primary);color:#fff">NEW</span>
+      </button>
+      <button class="entity-pill disabled" data-entity="uk">UK</button>
+      <button class="entity-pill disabled" data-entity="de">Germany</button>
+      <button class="entity-pill disabled" data-entity="ch">Switzerland</button>
+    </div>
+  </div>
+
+  <!-- Process tabs -->
+  <div class="process-tabs">
+    <button class="process-tab active" data-tab="p1">
+      <span class="tab-num">Process 1</span>
+      Flexi Input Feed
+    </button>
+    <button class="process-tab" data-tab="p2">
+      <span class="tab-num">Process 2</span>
+      Update Master File
+    </button>
+    <button class="process-tab" data-tab="p4">
+      <span class="tab-num">Process 4</span>
+      Payslip Reconciliation
+    </button>
+  </div>
+
+  <!-- ═══════════════ PROCESS 1 ═══════════════ -->
+  <div id="panel-p1" class="panel">
+    <div class="panel-header">
+      <div class="panel-icon">📥</div>
+      <div>
+        <div class="panel-title">Process 1 — Flexi Absence Input Feed</div>
+        <div class="panel-desc">Reads the E-days absence report and generates a formatted Flexi input file. Only Approved rows are included.</div>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div id="p1-error" class="notice notice-error hidden"></div>
+      <div class="field-group">
+        <div class="field-group-label">E-days Absence Report (.xlsx / .xls)</div>
+        <div class="field-group-body">
+          <div class="field">
+            <label>Source file</label>
+            <div class="file-row">
+              <input id="p1-source-file" class="file-input" type="file" accept=".xlsx,.xls" />
+              <select id="p1-source-sheet" title="Sheet"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="hint">Output: <strong>Flexi-absence input.xlsx</strong> — downloaded automatically. Columns: EMPLOYEE NUMBER, Absence Code, NAME, Absence Type, From, To, Days.</div>
+      <div class="btn-row">
+        <button id="btn-p1" class="btn btn-primary" type="button" disabled>
+          ▶ Run — Generate Flexi Input
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ PROCESS 2 ═══════════════ -->
+  <div id="panel-p2" class="panel hidden">
+    <div class="panel-header">
+      <div class="panel-icon">📊</div>
+      <div>
+        <div class="panel-title">Process 2 — Update Master File</div>
+        <div class="panel-desc">Calculates holiday and special balance changes from the E-days report and writes them into the master Excel file for the selected month.</div>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div id="p2-error" class="notice notice-error hidden"></div>
+      <div class="month-row">
+        <label>Month: <select id="p2-month"></select></label>
+      </div>
+      <div class="field-group">
+        <div class="field-group-label">E-days Absence Report (.xlsx / .xls)</div>
+        <div class="field-group-body">
+          <div class="field">
+            <label>Source file</label>
+            <div class="file-row">
+              <input id="p2-source-file" class="file-input" type="file" accept=".xlsx,.xls" />
+              <select id="p2-source-sheet"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="field-group">
+        <div class="field-group-label">Holiday Balance Master File (.xlsx)</div>
+        <div class="field-group-body">
+          <div class="field">
+            <label>Master file</label>
+            <div class="file-row">
+              <input id="p2-master-file" class="file-input" type="file" accept=".xlsx" />
+              <select id="p2-master-sheet"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="hint">A new master file is created for download — the original is never overwritten. Formatting and formulas are preserved.</div>
+      <div class="btn-row">
+        <button id="btn-p2" class="btn btn-primary" type="button" disabled>
+          ▶ Run — Update Master
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ PROCESS 4 ═══════════════ -->
+  <div id="panel-p4" class="panel hidden">
+    <div class="panel-header">
+      <div class="panel-icon">🔍</div>
+      <div>
+        <div class="panel-title">Process 4 — Payslip Reconciliation</div>
+        <div class="panel-desc">Compares holiday balances in the updated master file against values extracted from payslip PDFs. Mismatches are highlighted in red.</div>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div id="p4-error" class="notice notice-error hidden"></div>
+      <div class="field-group">
+        <div class="field-group-label">Master File (updated output from Process 2) (.xlsx)</div>
+        <div class="field-group-body">
+          <div class="field">
+            <label>Master file</label>
+            <div class="file-row">
+              <input id="p4-master-file" class="file-input" type="file" accept=".xlsx" />
+              <select id="p4-master-sheet"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="field-group">
+        <div class="field-group-label">Payslip PDFs</div>
+        <div class="field-group-body">
+          <div class="field">
+            <label>Select one or more payslip PDF files</label>
+            <input id="p4-payslip-files" class="file-input" type="file" accept=".pdf" multiple />
+          </div>
+        </div>
+      </div>
+      <div class="hint">Reads <strong>Total holiday balance</strong> and <strong>Total special holiday balance</strong> from master, compares with payslip values.</div>
+      <div class="btn-row">
+        <button id="btn-p4" class="btn btn-primary" type="button" disabled>
+          ▶ Run — Reconcile with Payslips
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Result -->
+  <div class="result-panel">
+    <div class="result-header">
+      <div class="result-dot" id="result-dot"></div>
+      <span>Last Result</span>
+    </div>
+    <div class="result-body">
+      <div id="result-content" class="result-empty">No processes run yet.</div>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="log-wrap">
+    <div class="log-header">
+      <span class="log-title">Process Log</span>
+      <button class="log-clear" onclick="clearLog()">Clear</button>
+    </div>
+    <pre id="log-output" class="log-output">Ready. Select an entity and process to begin.
+</pre>
+  </div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
