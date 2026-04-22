@@ -512,13 +512,13 @@
       <div class="panel-icon">📥</div>
       <div>
         <div class="panel-title">Process 1 — Flexi Absence Input Feed</div>
-        <div class="panel-desc">Reads the E-days absence report and generates a formatted Flexi input file. Only Approved rows are included.</div>
+        <div class="panel-desc" id="p1-desc">Reads the source file and generates a formatted Flexi input file. Only relevant absence types are included.</div>
       </div>
     </div>
     <div class="panel-body">
       <div id="p1-error" class="notice notice-error hidden"></div>
       <div class="field-group">
-        <div class="field-group-label">E-days Absence Report (.xlsx / .xls)</div>
+        <div class="field-group-label" id="p1-source-label">Source File (.xlsx / .xls)</div>
         <div class="field-group-body">
           <div class="field">
             <label>Source file</label>
