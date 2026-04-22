@@ -8,55 +8,55 @@ const ENTITIES = {
   dk_aarhus: {
     label: "Denmark — Qiagen Aarhus",
     processes: ["p1", "p2", "p3", "p4"],
+    sourceFormat: "aarhus",  // original tool format: Project, SAP ID, Type, Start Date, Days
     months: ["Sep-25","Oct-25","Nov-25","Dec-25","Jan-26","Feb-26","Mar-26","Apr-26","May-26","Jun-26","Jul-26","Aug-26"],
+    // Maps Project column value (lowercase) → { code, type }
     absenceTypeMap: {
-      // E-days Absence Type value (lowercase, trimmed) → { code, type }
-      "holiday":                                          { code: 748,  type: "Vacation" },
-      "company free days (\"feriefri\")":                { code: 629,  type: "Extra vacation days" },
-      "company free days (\u201cferiefri\u201d)":        { code: 629,  type: "Extra vacation days" },
-      "company free days (\u00e2\u20ac\u0153feriefri\u00e2\u20ac)": { code: 629, type: "Extra vacation days" },
+      "1402 holidays (normal vacation days)": { code: 748, type: "Vacation" },
+      "1405 company days":                    { code: 629, type: "Extra vacation days" },
+      "1409 unpaid leave":                    { code: "Unpaid leave", type: "Unpaid leave" },
     },
+    // Maps Project column value (lowercase) → "Holiday" or "Special" (for Process 2)
     balanceTypeMap: {
-      "holiday":                                          "Holiday",
-      "company free days (\"feriefri\")":                "Special",
-      "company free days (\u201cferiefri\u201d)":        "Special",
-      "company free days (\u00e2\u20ac\u0153feriefri\u00e2\u20ac)": "Special",
+      "1402 holidays (normal vacation days)": "Holiday",
+      "1403 special holidays":               "Special",
     },
-    // Column names in the E-days source file
     sourceColumns: {
-      employeeId: ["Employee Number", "SAP ID", "Employee No"],
-      absenceType: ["Absence Type"],
-      from: ["From"],
-      to: ["To"],
-      days: ["Total Days", "Days"],
-      status: ["Status"],
-      name: ["First Name", "Name"],
+      employeeId:  ["SAP ID", "Employee Number", "Employee No"],
+      absenceType: ["Project"],          // Aarhus uses "Project" column
+      from:        ["Start Date"],
+      to:          ["End Date", "To"],   // Aarhus may not have To — handled below
+      days:        ["Days", "Duration (decimal)", "Total Days"],
+      status:      [],                   // Aarhus has no Status column — all rows included
+      name:        ["User", "Name"],
     },
   },
   dk_ab: {
     label: "Denmark — Qiagen AB",
     processes: ["p1", "p2", "p4"],
+    sourceFormat: "edays",  // E-days export format: Employee Number, Absence Type, From, To, Total Days, Status
     months: ["Sep-25","Oct-25","Nov-25","Dec-25","Jan-26","Feb-26","Mar-26","Apr-26","May-26","Jun-26","Jul-26","Aug-26"],
+    // Maps Absence Type value (lowercase) → { code, type }
     absenceTypeMap: {
-      "holiday":                                          { code: 748,  type: "Vacation" },
-      "company free days (\"feriefri\")":                { code: 629,  type: "Extra vacation days" },
-      "company free days (\u201cferiefri\u201d)":        { code: 629,  type: "Extra vacation days" },
-      "company free days (\u00e2\u20ac\u0153feriefri\u00e2\u20ac)": { code: 629, type: "Extra vacation days" },
+      "holiday":                                               { code: 748,  type: "Vacation" },
+      "company free days (\"feriefri\")":                     { code: 629,  type: "Extra vacation days" },
+      "company free days (\u201cferiefri\u201d)":             { code: 629,  type: "Extra vacation days" },
+      "sickness":                                              { code: 750,  type: "Sickness" },
     },
+    // Maps Absence Type value (lowercase) → "Holiday" or "Special" (for Process 2)
     balanceTypeMap: {
-      "holiday":                                          "Holiday",
-      "company free days (\"feriefri\")":                "Special",
-      "company free days (\u201cferiefri\u201d)":        "Special",
-      "company free days (\u00e2\u20ac\u0153feriefri\u00e2\u20ac)": "Special",
+      "holiday":                                               "Holiday",
+      "company free days (\"feriefri\")":                     "Special",
+      "company free days (\u201cferiefri\u201d)":             "Special",
     },
     sourceColumns: {
-      employeeId: ["Employee Number", "SAP ID", "Employee No"],
+      employeeId:  ["Employee Number", "SAP ID", "Employee No"],
       absenceType: ["Absence Type"],
-      from: ["From"],
-      to: ["To"],
-      days: ["Total Days", "Days"],
-      status: ["Status"],
-      name: ["First Name", "Name"],
+      from:        ["From"],
+      to:          ["To"],
+      days:        ["Total Days", "Days"],
+      status:      ["Status"],
+      name:        ["First Name", "Name"],
     },
   },
 };
@@ -200,6 +200,16 @@ function updateTabVisibility() {
   if (!activeTab || !allowed.includes(activeTab.dataset.tab)) {
     switchTab("p1");
   }
+  // Update entity-specific labels
+  const isAarhus = state.entity === "dk_aarhus";
+  const srcLabel = document.getElementById("p1-source-label");
+  const p1Desc   = document.getElementById("p1-desc");
+  if (srcLabel) srcLabel.textContent = isAarhus
+    ? "Holiday Report (.xlsx / .xls)"
+    : "E-days Absence Report (.xlsx / .xls)";
+  if (p1Desc) p1Desc.textContent = isAarhus
+    ? "Reads the Holiday Report (Project / SAP ID / Start Date / Days) and generates a formatted Flexi input file."
+    : "Reads the E-days absence report and generates a formatted Flexi input file. Only Approved rows are included.";
 }
 
 function switchTab(key) {
@@ -340,7 +350,97 @@ async function runProcess1() {
 }
 
 function buildFlexiRows(rows, entity) {
-  const cols = entity.sourceColumns;
+  if (entity.sourceFormat === "aarhus") {
+    return buildFlexiRowsAarhus(rows, entity);
+  }
+  return buildFlexiRowsEdays(rows, entity);
+}
+
+// ── Aarhus: Project / SAP ID / Start Date / Days — no Status column, no To column ──
+function buildFlexiRowsAarhus(rows, entity) {
+  const cols    = entity.sourceColumns;
+  const typeMap = entity.absenceTypeMap;
+
+  const idCol   = findColumnName(rows, cols.employeeId);
+  const typeCol = findColumnName(rows, cols.absenceType);  // "Project"
+  const fromCol = findColumnName(rows, cols.from);         // "Start Date"
+  const daysCol = findColumnName(rows, cols.days);
+  const nameCol = findColumnName(rows, cols.name);
+
+  if (!idCol)   throw new Error(`Could not find SAP ID column. Tried: ${cols.employeeId.join(", ")}`);
+  if (!typeCol) throw new Error(`Could not find Project column. Tried: ${cols.absenceType.join(", ")}`);
+  if (!fromCol) throw new Error(`Could not find Start Date column. Tried: ${cols.from.join(", ")}`);
+  if (!daysCol) throw new Error(`Could not find Days column. Tried: ${cols.days.join(", ")}`);
+
+  log(`  Columns → ID:${idCol}, Project:${typeCol}, StartDate:${fromCol}, Days:${daysCol}`);
+
+  // Use the same merge-consecutive-days logic as the original tool
+  const filtered = rows
+    .map((row) => ({
+      key:       String(row[typeCol] || "").trim().toLowerCase(),
+      user:      nameCol ? String(row[nameCol] || "").trim() : "",
+      sap:       normalizeSap(row[idCol]),
+      startDate: parseDateValue(row[fromCol]),
+      days:      round2(Number(row[daysCol]) || 0),
+    }))
+    .filter((row) => row.sap && row.startDate && (row.key in typeMap))
+    .sort((a, b) => {
+      if (a.sap !== b.sap)           return a.sap.localeCompare(b.sap);
+      if (a.startDate - b.startDate) return a.startDate - b.startDate;
+      return a.key.localeCompare(b.key);
+    });
+
+  if (!filtered.length) throw new Error("No matching records found in source (check Project column values).");
+
+  const result = [];
+  let i = 0;
+  while (i < filtered.length) {
+    const base = filtered[i];
+    const map  = typeMap[base.key];
+    const isWhole = base.days > 0 && Number.isInteger(base.days);
+
+    if (!isWhole) {
+      result.push({
+        "EMPLOYEE NUMBER": base.sap,
+        "Absence Code":    map.code,
+        "NAME":            base.user,
+        "Absence Type":    map.type,
+        "From":            formatDateDMY(base.startDate),
+        "To":              formatDateDMY(base.startDate),
+        "Days":            base.days,
+      });
+      i++; continue;
+    }
+
+    // Merge consecutive whole-day records of same SAP + project
+    let totalDays = base.days, lastDate = base.startDate, j = i + 1;
+    while (j < filtered.length) {
+      const next = filtered[j];
+      if (next.sap !== base.sap || next.key !== base.key) break;
+      if (!Number.isInteger(next.days) || next.days <= 0) break;
+      const expected = nextWorkday(lastDate);
+      if (formatDateDMY(next.startDate) !== formatDateDMY(expected)) break;
+      totalDays += next.days;
+      lastDate   = next.startDate;
+      j++;
+    }
+    result.push({
+      "EMPLOYEE NUMBER": base.sap,
+      "Absence Code":    map.code,
+      "NAME":            base.user,
+      "Absence Type":    map.type,
+      "From":            formatDateDMY(base.startDate),
+      "To":              formatDateDMY(lastDate),
+      "Days":            round2(totalDays),
+    });
+    i = j;
+  }
+  return result;
+}
+
+// ── AB / E-days: Employee Number / Absence Type / From / To / Total Days / Status ──
+function buildFlexiRowsEdays(rows, entity) {
+  const cols    = entity.sourceColumns;
   const typeMap = entity.absenceTypeMap;
 
   const idCol     = findColumnName(rows, cols.employeeId);
@@ -359,7 +459,7 @@ function buildFlexiRows(rows, entity) {
 
   log(`  Columns → ID:${idCol}, Type:${typeCol}, From:${fromCol}, To:${toCol}, Days:${daysCol}, Status:${statusCol}`);
 
-  const filtered = rows
+  return rows
     .filter((row) => {
       const status = String(row[statusCol] || "").trim().toLowerCase();
       if (status !== "approved") return false;
@@ -384,8 +484,6 @@ function buildFlexiRows(rows, entity) {
       };
     })
     .filter((r) => r["EMPLOYEE NUMBER"]);
-
-  return filtered;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -443,15 +541,51 @@ async function runProcess2() {
 }
 
 function buildBalanceSummary(rows, entity) {
-  const cols      = entity.sourceColumns;
-  const balMap    = entity.balanceTypeMap;
+  if (entity.sourceFormat === "aarhus") {
+    return buildBalanceSummaryAarhus(rows, entity);
+  }
+  return buildBalanceSummaryEdays(rows, entity);
+}
+
+// ── Aarhus: uses Project column, no Status filter ──
+function buildBalanceSummaryAarhus(rows, entity) {
+  const cols   = entity.sourceColumns;
+  const balMap = entity.balanceTypeMap;
+
+  const idCol   = findColumnName(rows, cols.employeeId);
+  const typeCol = findColumnName(rows, cols.absenceType);  // "Project"
+  const daysCol = findColumnName(rows, cols.days);
+
+  if (!idCol || !typeCol || !daysCol)
+    throw new Error(`Could not find required columns in source sheet for Process 2. Need: ${cols.employeeId[0]}, ${cols.absenceType[0]}, ${cols.days[0]}`);
+
+  const map = new Map();
+  rows.forEach((row) => {
+    const sap  = normalizeSap(row[idCol]);
+    if (!sap) return;
+    const key  = String(row[typeCol] || "").trim().toLowerCase();
+    const type = balMap[key];
+    if (!type) return;
+    const days = round2(Number(row[daysCol]) || 0);
+    if (!map.has(sap)) map.set(sap, { "SAP ID": sap, Holiday: 0, Special: 0 });
+    const rec = map.get(sap);
+    rec[type] = round2((rec[type] || 0) + days);
+  });
+  return Array.from(map.values());
+}
+
+// ── AB / E-days: uses Absence Type column, filters by Status = Approved ──
+function buildBalanceSummaryEdays(rows, entity) {
+  const cols   = entity.sourceColumns;
+  const balMap = entity.balanceTypeMap;
+
   const idCol     = findColumnName(rows, cols.employeeId);
   const typeCol   = findColumnName(rows, cols.absenceType);
   const daysCol   = findColumnName(rows, cols.days);
   const statusCol = findColumnName(rows, cols.status);
 
   if (!idCol || !typeCol || !daysCol || !statusCol)
-    throw new Error("Could not find required columns in source sheet for Process 2.");
+    throw new Error(`Could not find required columns in source sheet for Process 2. Need: Employee Number, Absence Type, Total Days, Status`);
 
   const map = new Map();
   rows.forEach((row) => {
@@ -461,7 +595,7 @@ function buildBalanceSummary(rows, entity) {
     if (!sap) return;
     const abs  = normalizeAbsenceType(String(row[typeCol] || ""));
     const type = balMap[abs];
-    if (!type) return; // not tracked (e.g. Sickness)
+    if (!type) return;
     const days = round2(Number(row[daysCol]) || 0);
     if (!map.has(sap)) map.set(sap, { "SAP ID": sap, Holiday: 0, Special: 0 });
     const rec = map.get(sap);
@@ -1452,6 +1586,14 @@ function parseDateValue(value) {
   }
   const fallback = new Date(value);
   return isNaN(fallback.getTime()) ? null : fallback;
+}
+
+function nextWorkday(date) {
+  let current = new Date(date.getTime() + 86400000);
+  while (current.getUTCDay() === 0 || current.getUTCDay() === 6) {
+    current = new Date(current.getTime() + 86400000);
+  }
+  return current;
 }
 
 function formatDateDMY(date) {
