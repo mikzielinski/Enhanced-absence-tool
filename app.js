@@ -8,7 +8,7 @@ const ENTITIES = {
   dk_aarhus: {
     label: "Denmark — Qiagen Aarhus",
     processes: ["p1", "p2", "p3", "p4"],
-    sourceFormat: "aarhus",  // original tool format: Project, SAP ID, Type, Start Date, Days
+    sourceFormat: "aarhus",  // format: Project, SAP ID, Start Date, Days
     months: ["Sep-25","Oct-25","Nov-25","Dec-25","Jan-26","Feb-26","Mar-26","Apr-26","May-26","Jun-26","Jul-26","Aug-26"],
     // Maps Project column value (lowercase) → { code, type }
     absenceTypeMap: {
@@ -403,7 +403,7 @@ function buildFlexiRowsAarhus(rows, entity) {
 
   log(`  Columns → ID:${idCol}, Project:${typeCol}, StartDate:${fromCol}, Days:${daysCol}`);
 
-  // Use the same merge-consecutive-days logic as the original tool
+  // Merge consecutive whole-day records of same SAP + project
   const filtered = rows
     .map((row) => ({
       key:       String(row[typeCol] || "").trim().toLowerCase(),
@@ -1013,7 +1013,7 @@ async function runProcess4() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MASTER FILE — PLAN + APPLY (preserved from original tool, format-safe)
+// MASTER FILE — PLAN + APPLY
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildMasterUpdatePlan(workbook, sheetName, summaryRows, monthLabel) {
@@ -1259,7 +1259,7 @@ async function readSheetColumnsDirect(arrayBuffer, sheetName, opts) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PDF PAYSLIP PARSING (Danish format — same as original tool)
+// PDF PAYSLIP PARSING (Danish format)
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function parsePayslipBatch(file) {
