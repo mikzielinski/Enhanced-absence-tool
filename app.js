@@ -577,40 +577,52 @@ function resolveMonthBounds(monthLabel) {
   return { year, month, monthIdx, firstDay, lastDay, label: monthLabel };
 }
 
-// Parse a date value as DD/MM/YYYY.
-// If the parsed month (middle part) does not equal ctx.expectedMonth,
-// the date is assumed to be swapped to MM/DD — swap day and month to correct it.
+// Parse a date value for AB E-days format.
+// Rules:
+//   - String "DD/MM/YYYY": parse as DD/MM, swap if MM ≠ expected month
+//   - Excel serial (number): parse normally, swap day/month if month ≠ expected month
+//   - After parsing, clipping to month bounds is done by the caller
 function parseDateDDMM(rawValue, ctx) {
-  if (!rawValue) return null;
+  if (rawValue === null || rawValue === undefined || rawValue === "") return null;
 
-  // Excel serial number — no format ambiguity, parse directly
   const num = Number(rawValue);
+
+  // ── Excel serial number (date stored as number) ──
   if (!isNaN(num) && num > 1000 && num < 100000) {
-    return parseDateValue(rawValue);
+    const d = parseDateValue(num);
+    if (!d) return null;
+    const storedMonth = d.getUTCMonth() + 1; // 1-based
+    const storedDay   = d.getUTCDate();
+    const year        = d.getUTCFullYear();
+    // If stored month ≠ expected month, the date was entered as DD/MM but Excel
+    // stored it as MM/DD → swap day and month to recover the intended date
+    if (storedMonth !== ctx.expectedMonth) {
+      const corrected = new Date(Date.UTC(year, storedDay - 1, storedMonth));
+      if (!isNaN(corrected.getTime())) {
+        log(`  DATE FIX serial ${num}: stored as ${formatDateDMY(d)} (month=${storedMonth}) → swapped to ${formatDateDMY(corrected)}`);
+        return corrected;
+      }
+    }
+    return d;
   }
 
+  // ── String date ──
   const s = String(rawValue).trim();
-
-  // Match DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
   const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
-  if (!m) {
-    // Fall back to generic parser for ISO etc.
-    return parseDateValue(rawValue);
-  }
+  if (!m) return parseDateValue(rawValue); // ISO or other — use generic parser
 
   let day   = parseInt(m[1], 10);
   let month = parseInt(m[2], 10);
   const year = parseInt(m[3], 10);
 
-  // If the month part doesn't match the expected month, the date is in MM/DD format — swap
+  // Swap if middle part (month in DD/MM) ≠ expected month but first part matches
   if (month !== ctx.expectedMonth && day === ctx.expectedMonth) {
-    log(`  DATE FIX: "${s}" — month field is ${month}, expected ${ctx.expectedMonth} → swapping to DD/MM: day=${month}, month=${day}`);
+    log(`  DATE FIX string "${s}": month field=${month}, expected=${ctx.expectedMonth} → swapping DD↔MM`);
     [day, month] = [month, day];
   }
 
   const date = new Date(Date.UTC(year, month - 1, day));
-  if (isNaN(date.getTime())) return null;
-  return date;
+  return isNaN(date.getTime()) ? null : date;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1656,31 +1668,30 @@ function sheetToObjects(wb, sheetName) {
 
 // Read sheet rows but stop at the first row where column A is empty.
 // Row 1 is headers. Data starts at row 2.
-// This prevents reading stray content or formatting below the actual data.
+// Uses raw:true so date cells come as Excel serial numbers (not locale-formatted strings),
+// and header row is read separately to build the key map.
 function sheetToObjectsColABounded(wb, sheetName) {
   const ws = wb.Sheets[sheetName];
   if (!ws) throw new Error(`Sheet '${sheetName}' not found.`);
 
-  // Find the last data row by scanning column A for the first empty cell after row 1
   const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
-  let lastDataRow = range.s.r; // start at first row (0-indexed)
 
+  // Find last data row by scanning column A for first empty cell after header row
+  let lastDataRow = range.s.r; // fallback: just the header row
   for (let r = range.s.r + 1; r <= range.e.r; r++) {
-    // r+1 because XLSX rows are 0-indexed but cell refs are 1-indexed
-    const cellRef = XLSX.utils.encode_cell({ r, c: 0 }); // column A
+    const cellRef = XLSX.utils.encode_cell({ r, c: 0 });
     const cell    = ws[cellRef];
     const val     = cell ? (cell.v !== undefined ? cell.v : null) : null;
     if (val === null || val === "" || val === undefined) {
-      // First empty cell in col A — stop here
       lastDataRow = r - 1;
       break;
     }
     lastDataRow = r;
   }
 
-  log(`  Col A scan: last data row = ${lastDataRow + 1} (1-based)`);
+  log(`  Col A scan: last data row = ${lastDataRow + 1} (1-based), total data rows = ${lastDataRow - range.s.r}`);
 
-  // Build a clipped range and parse only those rows
+  // Clip to found range
   const clippedRange = {
     s: { r: range.s.r, c: range.s.c },
     e: { r: lastDataRow, c: range.e.c },
@@ -1688,7 +1699,9 @@ function sheetToObjectsColABounded(wb, sheetName) {
   const clippedWs = Object.assign({}, ws, {
     "!ref": XLSX.utils.encode_range(clippedRange),
   });
-  return XLSX.utils.sheet_to_json(clippedWs, { defval: null, raw: false });
+
+  // raw:true → dates stay as Excel serial numbers, not converted to locale strings
+  return XLSX.utils.sheet_to_json(clippedWs, { defval: null, raw: true });
 }
 
 function findColumnName(rows, candidates) {
