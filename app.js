@@ -90,6 +90,8 @@ const ui = {
   p1SourceFile: document.getElementById("p1-source-file"),
   p1SourceSheet: document.getElementById("p1-source-sheet"),
   p1Error: document.getElementById("p1-error"),
+  p1Month: document.getElementById("p1-month"),
+  p1MonthRow: document.getElementById("p1-month-row"),
   btnP1: document.getElementById("btn-p1"),
 
   p2Month: document.getElementById("p2-month"),
@@ -188,20 +190,26 @@ function init() {
 }
 
 function updateTabVisibility() {
-  const allowed = ENTITIES[state.entity].processes;
+  const allowed  = ENTITIES[state.entity].processes;
+  const isAarhus = state.entity === "dk_aarhus";
+
   ui.processTabs.forEach((tab) => {
-    const key = tab.dataset.tab;
+    const key     = tab.dataset.tab;
     const visible = allowed.includes(key);
     tab.classList.toggle("tab-hidden", !visible);
     tab.style.display = visible ? "" : "none";
   });
+
   // If currently active tab is not allowed, switch to p1
   const activeTab = document.querySelector(".process-tab.active");
   if (!activeTab || !allowed.includes(activeTab.dataset.tab)) {
     switchTab("p1");
   }
+
+  // Show month selector in P1 only for AB (E-days format)
+  ui.p1MonthRow.classList.toggle("hidden", isAarhus);
+
   // Update entity-specific labels
-  const isAarhus = state.entity === "dk_aarhus";
   const srcLabel = document.getElementById("p1-source-label");
   const p1Desc   = document.getElementById("p1-desc");
   if (srcLabel) srcLabel.textContent = isAarhus
@@ -224,16 +232,29 @@ function switchTab(key) {
 
 function populateMonthSelect() {
   const months = ENTITIES[state.entity].months;
+
+  // Populate P2 month
   ui.p2Month.innerHTML = "";
   months.forEach((m) => {
     const opt = document.createElement("option");
     opt.value = m; opt.textContent = m;
     ui.p2Month.appendChild(opt);
   });
-  // Auto-select current month
+
+  // Populate P1 month (for AB entity)
+  ui.p1Month.innerHTML = "";
+  months.forEach((m) => {
+    const opt = document.createElement("option");
+    opt.value = m; opt.textContent = m;
+    ui.p1Month.appendChild(opt);
+  });
+
+  // Auto-select current month for both
   const now = new Date();
   const cur = now.toLocaleString("en-US", { month: "short" }) + "-" + String(now.getFullYear()).slice(-2);
-  ui.p2Month.value = months.includes(cur) ? cur : months[0];
+  const target = months.includes(cur) ? cur : months[0];
+  ui.p2Month.value = target;
+  ui.p1Month.value = target;
 }
 
 function resetAllForms() {
@@ -314,19 +335,25 @@ async function runProcess1() {
   try {
     log("=== Process 1 — Flexi Absence Input Feed ===");
     const entity = ENTITIES[state.entity];
+
+    // Read fresh from disk — no cached state used
     const sourceFile = ui.p1SourceFile.files?.[0];
-    if (!sourceFile) throw new Error("Please select the E-days source file.");
+    if (!sourceFile) throw new Error("Please select the source file.");
     const sheetName = ui.p1SourceSheet.value;
     if (!sheetName) throw new Error("Please select a sheet.");
 
-    log(`Reading source: ${sourceFile.name} / ${sheetName}`);
+    // For AB (E-days format): require month selection
+    const monthLabel = entity.sourceFormat === "edays" ? ui.p1Month.value : null;
+    if (entity.sourceFormat === "edays" && !monthLabel) throw new Error("Please select a month.");
+
+    log(`Reading source: ${sourceFile.name} / ${sheetName}${monthLabel ? ` (month: ${monthLabel})` : ""}`);
     const buf = await sourceFile.arrayBuffer();
-    const wb = XLSX.read(buf, { type: "array" });
+    const wb  = XLSX.read(buf, { type: "array" });
     const rows = sheetToObjects(wb, sheetName);
     log(`  Source rows: ${rows.length}`);
 
-    const flexiRows = buildFlexiRows(rows, entity);
-    log(`  Approved + mapped rows: ${flexiRows.length}`);
+    const flexiRows = buildFlexiRows(rows, entity, monthLabel);
+    log(`  Output rows: ${flexiRows.length}`);
 
     const outWb = buildSimpleWorkbook("Flexi absence input", [
       "EMPLOYEE NUMBER", "Absence Code", "NAME", "Absence Type", "From", "To", "Days",
@@ -337,9 +364,7 @@ async function runProcess1() {
     setResultSuccess({
       process: "Process 1 — Flexi Absence Input Feed",
       entity: entity.label,
-      stats: [
-        { label: "Rows Generated", val: flexiRows.length, cls: "ok" },
-      ],
+      stats: [{ label: "Rows Generated", val: flexiRows.length, cls: "ok" }],
       file: "Flexi-absence input.xlsx",
     });
   } catch (err) {
@@ -349,11 +374,11 @@ async function runProcess1() {
   }
 }
 
-function buildFlexiRows(rows, entity) {
+function buildFlexiRows(rows, entity, monthLabel) {
   if (entity.sourceFormat === "aarhus") {
     return buildFlexiRowsAarhus(rows, entity);
   }
-  return buildFlexiRowsEdays(rows, entity);
+  return buildFlexiRowsEdays(rows, entity, monthLabel);
 }
 
 // ── Aarhus: Project / SAP ID / Start Date / Days — no Status column, no To column ──
@@ -439,7 +464,7 @@ function buildFlexiRowsAarhus(rows, entity) {
 }
 
 // ── AB / E-days: Employee Number / Absence Type / From / To / Total Days / Status ──
-function buildFlexiRowsEdays(rows, entity) {
+function buildFlexiRowsEdays(rows, entity, monthLabel) {
   const cols    = entity.sourceColumns;
   const typeMap = entity.absenceTypeMap;
 
@@ -459,31 +484,129 @@ function buildFlexiRowsEdays(rows, entity) {
 
   log(`  Columns → ID:${idCol}, Type:${typeCol}, From:${fromCol}, To:${toCol}, Days:${daysCol}, Status:${statusCol}`);
 
-  return rows
-    .filter((row) => {
-      const status = String(row[statusCol] || "").trim().toLowerCase();
-      if (status !== "approved") return false;
-      const absType = normalizeAbsenceType(String(row[typeCol] || ""));
-      return absType in typeMap;
-    })
-    .map((row) => {
-      const absType = normalizeAbsenceType(String(row[typeCol] || ""));
-      const mapped  = typeMap[absType];
-      const from    = parseDateValue(row[fromCol]);
-      const to      = parseDateValue(row[toCol]);
-      const days    = round2(Number(row[daysCol]) || 0);
-      const empId   = normalizeSap(row[idCol]);
-      return {
-        "EMPLOYEE NUMBER": empId,
-        "Absence Code":    mapped.code,
-        "NAME":            "",
-        "Absence Type":    mapped.type,
-        "From":            from ? formatDateDMY(from) : String(row[fromCol] || ""),
-        "To":              to   ? formatDateDMY(to)   : String(row[toCol]   || ""),
-        "Days":            days,
-      };
-    })
-    .filter((r) => r["EMPLOYEE NUMBER"]);
+  // Resolve the target month's year and month number (1-based) from monthLabel e.g. "Mar-26"
+  const targetMonth = monthLabel ? resolveMonthBounds(monthLabel) : null;
+  if (targetMonth) {
+    log(`  Month filter: ${targetMonth.label} (${targetMonth.firstDay.toISOString().slice(0,10)} – ${targetMonth.lastDay.toISOString().slice(0,10)})`);
+  }
+
+  // Build date context: just the expected month number, used to detect swapped dates
+  const dateContext = targetMonth ? { expectedMonth: targetMonth.month, expectedYear: targetMonth.year } : null;
+
+  const result = [];
+
+  rows.forEach((row) => {
+    const status = String(row[statusCol] || "").trim().toLowerCase();
+    if (status !== "approved") return;
+
+    const absType = normalizeAbsenceType(String(row[typeCol] || ""));
+    if (!(absType in typeMap)) return;
+
+    const mapped = typeMap[absType];
+    const empId  = normalizeSap(row[idCol]);
+    if (!empId) return;
+
+    const days = round2(Number(row[daysCol]) || 0);
+
+    // Parse and correct From/To dates — always DD/MM/YYYY, fix if MM ≠ expected month
+    let from = dateContext
+      ? parseDateDDMM(row[fromCol], dateContext)
+      : parseDateValue(row[fromCol]);
+    let to = dateContext
+      ? parseDateDDMM(row[toCol], dateContext)
+      : parseDateValue(row[toCol]);
+
+    if (!from || !to) {
+      log(`  SKIP SAP ${empId}: could not parse dates (from="${row[fromCol]}", to="${row[toCol]}")`, "warn");
+      return;
+    }
+
+    // Clip to target month if specified
+    if (targetMonth) {
+      // Skip entirely if record is completely outside the month
+      if (to < targetMonth.firstDay || from > targetMonth.lastDay) {
+        log(`  SKIP SAP ${empId}: ${formatDateDMY(from)}–${formatDateDMY(to)} outside ${targetMonth.label}`);
+        return;
+      }
+      // Clip From to first day of month
+      if (from < targetMonth.firstDay) {
+        log(`  CLIP SAP ${empId}: From ${formatDateDMY(from)} → ${formatDateDMY(targetMonth.firstDay)}`);
+        from = targetMonth.firstDay;
+      }
+      // Clip To to last day of month
+      if (to > targetMonth.lastDay) {
+        log(`  CLIP SAP ${empId}: To ${formatDateDMY(to)} → ${formatDateDMY(targetMonth.lastDay)}`);
+        to = targetMonth.lastDay;
+      }
+    }
+
+    result.push({
+      "EMPLOYEE NUMBER": empId,
+      "Absence Code":    mapped.code,
+      "NAME":            "",
+      "Absence Type":    mapped.type,
+      "From":            formatDateDMY(from),
+      "To":              formatDateDMY(to),
+      "Days":            days,
+    });
+  });
+
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DATE PARSING — always DD/MM/YYYY, auto-fix if MM ≠ expected month
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Parse a "Mar-26" style label → { year, month (1-based), firstDay, lastDay, label }
+function resolveMonthBounds(monthLabel) {
+  const norm = normalizeMonthLabel(monthLabel);
+  if (!norm) throw new Error(`Cannot resolve month bounds for: ${monthLabel}`);
+  const [mon, yr] = norm.split("-");
+  const monthNames = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+  const monthIdx   = monthNames.indexOf(mon.toLowerCase());
+  if (monthIdx === -1) throw new Error(`Unknown month: ${mon}`);
+  const year     = 2000 + parseInt(yr, 10);
+  const month    = monthIdx + 1;
+  const firstDay = new Date(Date.UTC(year, monthIdx, 1));
+  const lastDay  = new Date(Date.UTC(year, monthIdx + 1, 0));
+  return { year, month, monthIdx, firstDay, lastDay, label: monthLabel };
+}
+
+// Parse a date value as DD/MM/YYYY.
+// If the parsed month (middle part) does not equal ctx.expectedMonth,
+// the date is assumed to be swapped to MM/DD — swap day and month to correct it.
+function parseDateDDMM(rawValue, ctx) {
+  if (!rawValue) return null;
+
+  // Excel serial number — no format ambiguity, parse directly
+  const num = Number(rawValue);
+  if (!isNaN(num) && num > 1000 && num < 100000) {
+    return parseDateValue(rawValue);
+  }
+
+  const s = String(rawValue).trim();
+
+  // Match DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+  const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if (!m) {
+    // Fall back to generic parser for ISO etc.
+    return parseDateValue(rawValue);
+  }
+
+  let day   = parseInt(m[1], 10);
+  let month = parseInt(m[2], 10);
+  const year = parseInt(m[3], 10);
+
+  // If the month part doesn't match the expected month, the date is in MM/DD format — swap
+  if (month !== ctx.expectedMonth && day === ctx.expectedMonth) {
+    log(`  DATE FIX: "${s}" — month field is ${month}, expected ${ctx.expectedMonth} → swapping to DD/MM: day=${month}, month=${day}`);
+    [day, month] = [month, day];
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (isNaN(date.getTime())) return null;
+  return date;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
