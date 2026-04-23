@@ -946,7 +946,7 @@ async function runProcess4() {
     const specialSummary = await readSheetColumnsDirect(masterBuf, masterSheet, {
       idCandidates:    ["SAP ID", "ID", "Holid"],
       nameCandidates:  ["Employee", "Name", "Employee Name", "First name", "Last name"],
-      valueCandidates: ["Total special holiday balance"],
+      valueCandidates: ["Total special holiday balance", "Total special holiday"],
       valueLabel:      "Total special holiday balance",
     });
 
