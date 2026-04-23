@@ -41,7 +41,6 @@ const ENTITIES = {
       "holiday":                                               { code: 748,  type: "Vacation" },
       "company free days (\"feriefri\")":                     { code: 629,  type: "Extra vacation days" },
       "company free days (\u201cferiefri\u201d)":             { code: 629,  type: "Extra vacation days" },
-      "sickness":                                              { code: 750,  type: "Sickness" },
     },
     // Maps Absence Type value (lowercase) → "Holiday" or "Special" (for Process 2)
     balanceTypeMap: {
@@ -349,7 +348,12 @@ async function runProcess1() {
     log(`Reading source: ${sourceFile.name} / ${sheetName}${monthLabel ? ` (month: ${monthLabel})` : ""}`);
     const buf = await sourceFile.arrayBuffer();
     const wb  = XLSX.read(buf, { type: "array" });
-    const rows = sheetToObjects(wb, sheetName);
+
+    // For E-days format (AB): limit rows to those with a value in column A
+    // (stops at first empty cell in col A, skipping any trailing garbage rows)
+    const rows = entity.sourceFormat === "edays"
+      ? sheetToObjectsColABounded(wb, sheetName)
+      : sheetToObjects(wb, sheetName);
     log(`  Source rows: ${rows.length}`);
 
     const flexiRows = buildFlexiRows(rows, entity, monthLabel);
@@ -1648,6 +1652,43 @@ function sheetToObjects(wb, sheetName) {
   const ws = wb.Sheets[sheetName];
   if (!ws) throw new Error(`Sheet '${sheetName}' not found.`);
   return XLSX.utils.sheet_to_json(ws, { defval: null, raw: false });
+}
+
+// Read sheet rows but stop at the first row where column A is empty.
+// Row 1 is headers. Data starts at row 2.
+// This prevents reading stray content or formatting below the actual data.
+function sheetToObjectsColABounded(wb, sheetName) {
+  const ws = wb.Sheets[sheetName];
+  if (!ws) throw new Error(`Sheet '${sheetName}' not found.`);
+
+  // Find the last data row by scanning column A for the first empty cell after row 1
+  const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+  let lastDataRow = range.s.r; // start at first row (0-indexed)
+
+  for (let r = range.s.r + 1; r <= range.e.r; r++) {
+    // r+1 because XLSX rows are 0-indexed but cell refs are 1-indexed
+    const cellRef = XLSX.utils.encode_cell({ r, c: 0 }); // column A
+    const cell    = ws[cellRef];
+    const val     = cell ? (cell.v !== undefined ? cell.v : null) : null;
+    if (val === null || val === "" || val === undefined) {
+      // First empty cell in col A — stop here
+      lastDataRow = r - 1;
+      break;
+    }
+    lastDataRow = r;
+  }
+
+  log(`  Col A scan: last data row = ${lastDataRow + 1} (1-based)`);
+
+  // Build a clipped range and parse only those rows
+  const clippedRange = {
+    s: { r: range.s.r, c: range.s.c },
+    e: { r: lastDataRow, c: range.e.c },
+  };
+  const clippedWs = Object.assign({}, ws, {
+    "!ref": XLSX.utils.encode_range(clippedRange),
+  });
+  return XLSX.utils.sheet_to_json(clippedWs, { defval: null, raw: false });
 }
 
 function findColumnName(rows, candidates) {
