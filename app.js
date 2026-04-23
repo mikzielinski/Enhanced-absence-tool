@@ -1663,7 +1663,9 @@ function colNumToLetter(n) {
 function sheetToObjects(wb, sheetName) {
   const ws = wb.Sheets[sheetName];
   if (!ws) throw new Error(`Sheet '${sheetName}' not found.`);
-  return XLSX.utils.sheet_to_json(ws, { defval: null, raw: false });
+  // raw:true — date cells returned as Excel serial numbers, not locale-formatted strings.
+  // This avoids timezone conversion bugs (new Date('3/30/2026') = local time ≠ UTC).
+  return XLSX.utils.sheet_to_json(ws, { defval: null, raw: true });
 }
 
 // Read sheet rows but stop at the first row where column A is empty.
@@ -1739,30 +1741,43 @@ function normalizeSap(value) {
 }
 
 function parseDateValue(value) {
-  if (!value) return null;
-  // Excel serial number
+  if (value === null || value === undefined || value === "") return null;
+
+  // Excel serial number (comes from raw:true reads)
   const num = Number(value);
   if (!isNaN(num) && num > 1000 && num < 100000) {
-    // Excel date serial → JS Date (Excel epoch is 1/1/1900, serial 1 = Jan 1 1900)
-    // Note: Excel wrongly treats 1900 as a leap year so we subtract 1 for dates after Feb 28 1900
-    const excelEpoch = new Date(Date.UTC(1900, 0, 1));
-    const d = new Date(excelEpoch.getTime() + (num - 2) * 86400000);
+    // Excel epoch: Dec 30 1899. Serial 1 = Jan 1 1900.
+    // Formula: UTC ms = (serial - 25569) * 86400000 where 25569 = days from Jan 1 1970 to Dec 30 1899
+    const d = new Date((num - 25569) * 86400000);
     if (!isNaN(d.getTime())) return d;
   }
-  // DD/MM/YYYY
-  const dmy = String(value).trim().match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+
+  const s = String(value).trim();
+
+  // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+  const dmy = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
   if (dmy) {
     const d = new Date(Date.UTC(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1])));
     if (!isNaN(d.getTime())) return d;
   }
+
   // ISO YYYY-MM-DD
-  const iso = String(value).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if (iso) {
     const d = new Date(Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])));
     if (!isNaN(d.getTime())) return d;
   }
-  const fallback = new Date(value);
-  return isNaN(fallback.getTime()) ? null : fallback;
+
+  // M/D/YYYY or MM/DD/YYYY (US format produced by XLSX.js raw:false for date cells)
+  const mdy = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if (mdy) {
+    // Ambiguous — could be DD/MM or MM/DD. We already tried DD/MM above.
+    // Try MM/DD as fallback (US format from XLSX.js).
+    const d = new Date(Date.UTC(Number(mdy[3]), Number(mdy[1]) - 1, Number(mdy[2])));
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  return null; // Never use new Date(string) — it's timezone-unsafe
 }
 
 function nextWorkday(date) {
