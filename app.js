@@ -205,9 +205,6 @@ function updateTabVisibility() {
     switchTab("p1");
   }
 
-  // Show month selector in P1 only for AB (E-days format)
-  ui.p1MonthRow.classList.toggle("hidden", isAarhus);
-
   // Update entity-specific labels
   const srcLabel = document.getElementById("p1-source-label");
   const p1Desc   = document.getElementById("p1-desc");
@@ -341,9 +338,9 @@ async function runProcess1() {
     const sheetName = ui.p1SourceSheet.value;
     if (!sheetName) throw new Error("Please select a sheet.");
 
-    // For AB (E-days format): require month selection
-    const monthLabel = entity.sourceFormat === "edays" ? ui.p1Month.value : null;
-    if (entity.sourceFormat === "edays" && !monthLabel) throw new Error("Please select a month.");
+    // Month is required for both entities
+    const monthLabel = ui.p1Month.value;
+    if (!monthLabel) throw new Error("Please select a month.");
 
     log(`Reading source: ${sourceFile.name} / ${sheetName}${monthLabel ? ` (month: ${monthLabel})` : ""}`);
     const buf = await sourceFile.arrayBuffer();
@@ -380,19 +377,19 @@ async function runProcess1() {
 
 function buildFlexiRows(rows, entity, monthLabel) {
   if (entity.sourceFormat === "aarhus") {
-    return buildFlexiRowsAarhus(rows, entity);
+    return buildFlexiRowsAarhus(rows, entity, monthLabel);
   }
   return buildFlexiRowsEdays(rows, entity, monthLabel);
 }
 
 // ── Aarhus: Project / SAP ID / Start Date / Days — no Status column, no To column ──
-function buildFlexiRowsAarhus(rows, entity) {
+function buildFlexiRowsAarhus(rows, entity, monthLabel) {
   const cols    = entity.sourceColumns;
   const typeMap = entity.absenceTypeMap;
 
   const idCol   = findColumnName(rows, cols.employeeId);
-  const typeCol = findColumnName(rows, cols.absenceType);  // "Project"
-  const fromCol = findColumnName(rows, cols.from);         // "Start Date"
+  const typeCol = findColumnName(rows, cols.absenceType);
+  const fromCol = findColumnName(rows, cols.from);
   const daysCol = findColumnName(rows, cols.days);
   const nameCol = findColumnName(rows, cols.name);
 
@@ -403,7 +400,11 @@ function buildFlexiRowsAarhus(rows, entity) {
 
   log(`  Columns → ID:${idCol}, Project:${typeCol}, StartDate:${fromCol}, Days:${daysCol}`);
 
-  // Merge consecutive whole-day records of same SAP + project
+  const targetMonth = monthLabel ? resolveMonthBounds(monthLabel) : null;
+  if (targetMonth) {
+    log(`  Month filter: ${targetMonth.label} (${formatDateDMY(targetMonth.firstDay)} – ${formatDateDMY(targetMonth.lastDay)})`);
+  }
+
   const filtered = rows
     .map((row) => ({
       key:       String(row[typeCol] || "").trim().toLowerCase(),
@@ -424,24 +425,30 @@ function buildFlexiRowsAarhus(rows, entity) {
   const result = [];
   let i = 0;
   while (i < filtered.length) {
-    const base = filtered[i];
-    const map  = typeMap[base.key];
+    const base    = filtered[i];
+    const map     = typeMap[base.key];
     const isWhole = base.days > 0 && Number.isInteger(base.days);
 
     if (!isWhole) {
+      let from = base.startDate;
+      let to   = base.startDate;
+      if (targetMonth) {
+        if (to < targetMonth.firstDay || from > targetMonth.lastDay) { i++; continue; }
+        if (from < targetMonth.firstDay) from = targetMonth.firstDay;
+        if (to   > targetMonth.lastDay)  to   = targetMonth.lastDay;
+      }
       result.push({
         "EMPLOYEE NUMBER": base.sap,
         "Absence Code":    map.code,
         "NAME":            base.user,
         "Absence Type":    map.type,
-        "From":            formatDateDMY(base.startDate),
-        "To":              formatDateDMY(base.startDate),
+        "From":            formatDateDMY(from),
+        "To":              formatDateDMY(to),
         "Days":            base.days,
       });
       i++; continue;
     }
 
-    // Merge consecutive whole-day records of same SAP + project
     let totalDays = base.days, lastDate = base.startDate, j = i + 1;
     while (j < filtered.length) {
       const next = filtered[j];
@@ -453,13 +460,28 @@ function buildFlexiRowsAarhus(rows, entity) {
       lastDate   = next.startDate;
       j++;
     }
+
+    let from = base.startDate;
+    let to   = lastDate;
+    if (targetMonth) {
+      if (to < targetMonth.firstDay || from > targetMonth.lastDay) { i = j; continue; }
+      if (from < targetMonth.firstDay) {
+        log(`  CLIP SAP ${base.sap}: From ${formatDateDMY(from)} → ${formatDateDMY(targetMonth.firstDay)}`);
+        from = targetMonth.firstDay;
+      }
+      if (to > targetMonth.lastDay) {
+        log(`  CLIP SAP ${base.sap}: To ${formatDateDMY(to)} → ${formatDateDMY(targetMonth.lastDay)}`);
+        to = targetMonth.lastDay;
+      }
+    }
+
     result.push({
       "EMPLOYEE NUMBER": base.sap,
       "Absence Code":    map.code,
       "NAME":            base.user,
       "Absence Type":    map.type,
-      "From":            formatDateDMY(base.startDate),
-      "To":              formatDateDMY(lastDate),
+      "From":            formatDateDMY(from),
+      "To":              formatDateDMY(to),
       "Days":            round2(totalDays),
     });
     i = j;
